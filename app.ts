@@ -3,7 +3,7 @@ import { Menu } from "https://deno.land/x/grammy_menu@v1.3.0/mod.ts";
 
 const BOT_TOKEN = Deno.env.get("BOT_TOKEN");
 const ADMIN_ID = Deno.env.get("ADMIN_ID");
-const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN") || "fallback-secret-token";
+const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN")
 
 if (!BOT_TOKEN) {
     throw new Error("BOT_TOKEN 环境变量未设置！");
@@ -69,22 +69,41 @@ bot.callbackQuery(/^reply:(\d+):(\d+)$/, async (ctx) => {
         return ctx.answerCallbackQuery("非管理员");
     }
     try {
+        const old = await kv.get<
+            ReplyContext & { promptMsgId : number }
+        >(["reply_context",admin_id]);
+        if(old.value){
+            try{
+                await bot.api.deleteMessage(
+                    admin_id,
+                    old.value.promptMsgId
+                );
+            }catch {}
+            await kv.delete(["reply_context",admin_id]);
+        }
         const parts = ctx.match[0].split(':');
         const userChatId = parseInt(parts[1]);
 
-        const context: ReplyContext = { targetUserId: userChatId };
-        await kv.set(["reply_context", admin_id], context, { expireIn: active });
-        await kv.set(["active_chat", userChatId], { adminId: admin_id }, { expireIn: active });
-
         const replyInstruction = `回复消息：`;
 
-        await ctx.reply(
+        const prompt = await ctx.reply(
             replyInstruction,
             {
                 parse_mode: "Markdown",
                 reply_markup: new InlineKeyboard().text("取消回复", "cancel_reply")
             }
         );
+
+        // const context: ReplyContext = { targetUserId: userChatId };
+        const context : ReplyContext & { msgId : number ; promptMsgId : number } = {
+            targetUserId: userChatId,
+            msgId: ctx.callbackQuery.message!.message_id,
+            promptMsgId : prompt.message_id
+        };
+
+        await kv.set(["reply_context", admin_id], context, { expireIn: active });
+
+        
     } catch (error) {
         console.error("存储消息失败：", error);
         await ctx.answerCallbackQuery({ text: "回复失败", show_alert: true });
@@ -101,10 +120,19 @@ bot.callbackQuery("cancel_reply", async (ctx) => {
         await kv.delete(["reply_context", admin_id]);
         if (targetUserId) {
             await kv.delete(["active_chat", targetUserId]);
+            await kv.delete(["active",targetUserId]);
+            await kv.delete(["chat_wait",targetUserId]);
+
+            await kv.set(
+                ["force_exit",targetUserId],
+                true,
+                { expireIn : active }
+            );
         }
+        await ctx.deleteMessage();
         await ctx.answerCallbackQuery("退出回复");
     } catch (error) {
-        console.error(error);
+        console.error("取消回复失败:", error);
         await ctx.answerCallbackQuery("取消回复失败");
     }
 });
@@ -160,19 +188,34 @@ bot.on("message", async (ctx) => {
 
     // 处理管理员消息
     if (userId == admin_id) {
-        const contextResult = await kv.get<ReplyContext>(['reply_context', admin_id]);
+        const contextResult = await kv.get< ReplyContext & { msgId : number ; promptMsgId : number ; }>(['reply_context', admin_id]);
         if (contextResult.value) {
-            const targetUserId = contextResult.value.targetUserId;
+            const { targetUserId , msgId , promptMsgId , }  = contextResult.value;
             const replyText = `${ctx.message.text}`;
 
             try {
                 const context: ReplyContext = { targetUserId: targetUserId };
                 await kv.set(["reply_text", admin_id], context, { expireIn: active });
-                await kv.set(["active", targetUserId], { admin: admin_id });
-                
+                await kv.set(["active", targetUserId], { admin: admin_id },{expireIn : active });
                 await bot.api.sendMessage(targetUserId, replyText, { parse_mode: "Markdown" });
+
+                await kv.set(["active_chat", targetUserId], { adminId: admin_id }, { expireIn: active });
+                await kv.delete(["force_exit",targetUserId]);
+
+                await bot.api.deleteMessage(admin_id,promptMsgId).catch(console.error);
+
                 await kv.delete(["reply_context", admin_id]);
-                await ctx.reply(`已发送至用户`, { reply_to_message_id: ctx.message.message_id });
+
+                const sent = await ctx.reply(`已发送至用户`, { reply_to_message_id: ctx.message.message_id });
+
+                setTimeout(async()=>{
+                    try{
+                        await bot.api.deleteMessage(
+                            admin_id,
+                            sent.message_id
+                        );
+                    }catch {}
+                },10000);
                 return;
             } catch (error) {
                 console.error("发送消息失败", error);
@@ -186,10 +229,19 @@ bot.on("message", async (ctx) => {
     // 处理普通用户消息
     if (userId !== admin_id) {
         const isRequest = messageText.includes("客服");
+        const forceExit = await kv.get<boolean>(["force_exit",userId]);
         const activeChat = await kv.get(["active_chat", userId]);
         const isChatActive = activeChat.value !== null;
         const chatWait = await kv.get(["chat_wait", userId]);
         const isWait = chatWait.value != null;
+
+        if(forceExit.value && !isRequest){
+            await ctx.reply("如需客服帮助，请发送'客服'");
+            return;
+        }
+        if(isRequest){
+            await kv.delete(["force_exit",userId]);
+        }
 
         const messageToAdmin = isChatActive || isRequest;
 
