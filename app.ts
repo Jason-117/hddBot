@@ -36,12 +36,12 @@ function escapeUnderscore(text: string): string {
 
 // 主菜单
 const menu = new Menu("root")
-  .url("官方客服", "https://t.me/haoduoduo001").row()
+  .url("官方客服", "https://t.me/haoduoduo008").row()
   .url("官方频道", "https://t.me/haodd1688").row();
 
 // 官方客服菜单
 const services = new Menu("serviecs")
-    .url("官方客服", "https://t.me/haoduoduo001").row()
+    .url("官方客服", "https://t.me/haoduoduo008").row()
     .back("返回");
 
 menu.register(services);
