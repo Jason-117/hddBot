@@ -1,4 +1,4 @@
-import { Bot, Context, InlineKeyboard, webhookCallback } from "https://deno.land/x/grammy@v1.36.1/mod.ts";
+import { Bot, Context, InlineKeyboard, webhookCallback } from "npm:grammy@1";
 import { Menu } from "https://deno.land/x/grammy_menu@v1.3.0/mod.ts";
 
 const BOT_TOKEN = Deno.env.get("BOT_TOKEN");
