@@ -1,5 +1,5 @@
 import { Bot, Context, InlineKeyboard, webhookCallback } from "npm:grammy@1";
-import { Menu } from "https://deno.land/x/grammy_menu@v1.3.0/mod.ts";
+import { Menu } from "npm:@grammyjs/menu@1";
 
 const BOT_TOKEN = Deno.env.get("BOT_TOKEN");
 const ADMIN_ID = Deno.env.get("ADMIN_ID");
